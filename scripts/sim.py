@@ -7,23 +7,24 @@ Run as:
 Look for instructions in `README.md` and in the official documentation.
 """
 
-from __future__ import annotations
+from __future__ import annotations  #让类型注解延迟解析（避免循环引用问题）
 
-import logging
-from pathlib import Path
-from typing import TYPE_CHECKING
+import logging  #"""打印日志"""
+from pathlib import Path  #"""跨平台处理文件路径"""
+from typing import TYPE_CHECKING  #"""类型检查时才导入（避免运行时开销）"""
 
-import fire
-import gymnasium
-from gymnasium.wrappers.jax_to_numpy import JaxToNumpy
+import fire  #"""自动把函数变成命令行接口 就可以用python sim.py调用"""
+import gymnasium  #"""强化学习框架"""
+from gymnasium.wrappers.jax_to_numpy import JaxToNumpy  #"""数据转换工具"""
 
 from lsy_drone_racing.utils import load_config, load_controller
+#"""loadconfig读取.toml配置  loadcontroller动态加载控制器类"""
 
 if TYPE_CHECKING:
-    from ml_collections import ConfigDict
+    from ml_collections import ConfigDict  #"""存配置"""
 
-    from lsy_drone_racing.control.controller import Controller
-    from lsy_drone_racing.envs.drone_race import DroneRaceEnv
+    from lsy_drone_racing.control.controller import Controller  #"""控制器基类"""
+    from lsy_drone_racing.envs.drone_race import DroneRaceEnv  #"""仿真环境"""
 
 
 logger = logging.getLogger(__name__)
@@ -36,12 +37,15 @@ def simulate(
     render: bool | None = None,
 ) -> list[float]:
     """Evaluate the drone controller over multiple episodes.
-
+       评估无人机控制器在多个回合中的表现。
     Args:
         config: The path to the configuration file. Assumes the file is in `config/`.
+                配置文件的路径
         controller: The name of the controller file in `lsy_drone_racing/control/` or None. If None,
             the controller specified in the config file is used.
-        n_runs: The number of episodes.
+            lsy_drone_racing/control/中控制器文件的名称或 None。
+            如果为 None 则使用配置文件中指定的控制器
+        n_runs: The number of episodes.回合数
         render: Enable/disable rendering the simulation.
 
     Returns:
@@ -49,13 +53,15 @@ def simulate(
     """
     # Load configuration and check if firmare should be used.
     config = load_config(Path(__file__).parents[1] / "config" / config)
+      #"""加载配置中 在当前文件项目根目录里面找config"""
     if render is None:
         render = config.sim.render
     else:
-        config.sim.render = render
+        config.sim.render = render  #"""如果命令行没说就用配置文件，说了就覆盖配置"""
     # Load the controller module
     control_path = Path(__file__).parents[1] / "lsy_drone_racing/control"
     controller_path = control_path / (controller or config.controller.file)
+      #"""命令行说了就用命令行的controller 没说就用config的"""
     controller_cls = load_controller(controller_path)  # This returns a class, not an instance
     # Create the racing environment
     env: DroneRaceEnv = gymnasium.make(
@@ -69,25 +75,29 @@ def simulate(
         randomizations=config.env.get("randomizations"),
         seed=config.env.seed,
     )
-    env = JaxToNumpy(env)
+    env = JaxToNumpy(env)  #"""把env输出转换成numpy"""
 
     ep_times = []
     for _ in range(n_runs):  # Run n_runs episodes with the controller
         obs, info = env.reset()
         controller: Controller = controller_cls(obs, info, config)
-        i = 0
-        fps = 60
+        #"""创建了控制器实例"""
+        i = 0  #"""step计数"""
+        fps = 60  #"""渲染帧率"""
 
         while True:
-            curr_time = i / config.env.freq
+            curr_time = i / config.env.freq  #"""时间=step/频率"""
 
             action = controller.compute_control(obs, info)
+            #"""核心接口 控制器根据compute_control这个函数输出动作"""
 
             obs, reward, terminated, truncated, info = env.step(action)
             # Update the controller internal state and models.
+            #"""obs是新状态 reward是rl里要用的奖励 terminated是成功失败标志符"""
+            #"""这一步是在action更新后更新控制器内部状态"""
             controller_finished = controller.step_callback(
                 action, obs, reward, terminated, truncated, info
-            )
+            )#"""更新内部状态 判断是否提前结束"""
             # Add up reward, collisions
             if terminated or truncated or controller_finished:
                 break
@@ -98,6 +108,7 @@ def simulate(
             i += 1
 
         controller.episode_callback()  # Update the controller internal state and models.
+        #"""用于训练或者统计"""
         log_episode_stats(obs, info, config, curr_time)
         controller.episode_reset()
         ep_times.append(curr_time if obs["target_gate"] == -1 else None)
