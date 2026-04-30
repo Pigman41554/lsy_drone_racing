@@ -8,7 +8,7 @@ The waypoints are generated using cubic spline interpolation from a set of prede
 Note that the trajectory uses pre-defined waypoints instead of dynamically generating a good path.
 """
 
-from __future__ import annotations  # Python 3.10 type hints 0
+from __future__ import annotations  # Python 3.10 type hints 1
 
 import math
 from typing import TYPE_CHECKING
